@@ -1,15 +1,17 @@
 use crate::article::*;
+use async_compression::tokio::bufread::GzipDecoder;
 use core::fmt;
 use file_integrity::hash_file;
-use flate2::read::GzDecoder;
 use reqwest::Client;
 use roxmltree::{Node, ParsingOptions};
-use std::fs::{self, File};
-use std::io::prelude::*;
 use std::sync::atomic::*;
 use std::sync::Arc;
-use std::{io::Write, path::Path, sync::mpsc::Sender};
+use std::{path::Path, sync::mpsc::Sender};
 use tempdir::TempDir;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio::io::BufReader;
 
 pub enum ParserState {
     Restarting,
@@ -56,7 +58,6 @@ impl Parser {
         let id_string: &String = &format!("dir{}", id);
         let dir = TempDir::new(id_string).unwrap();
         let temp_dir = dir.path().to_string_lossy().replace(".", "");
-        let _ = std::fs::create_dir(&temp_dir);
         Parser {
             download_url: String::new(),
             local_download_filename: String::new(),
@@ -86,6 +87,7 @@ impl Parser {
     }
 
     async fn reinit_for_index(&mut self, index: u32) {
+        let _ = tokio::fs::create_dir(&self.temp_dir.clone()).await;
         let fname = format!("pubmed24n{:0>4}.xml", index);
         self.report_state(ParserState::Restarting);
         self.download_url = format!("https://ftp.ncbi.nlm.nih.gov/pubmed/baseline/{}.gz", fname);
@@ -112,17 +114,17 @@ impl Parser {
             self.report_state(ParserState::ErrorChecksumWrong);
             return;
         }
-        let extracting_status = self.extract();
+        let extracting_status = self.extract().await;
         if extracting_status.is_err() {
             self.report_state(ParserState::ErrorExtractionFailed);
             return;
         }
-        let processing_state = self.process();
+        let processing_state = self.process().await;
         if processing_state.is_err() {
             self.report_state(ParserState::ErrorParsingFailed);
         }
         self.filter_articles();
-        let write_putput_worked = self.write_output();
+        let write_putput_worked = self.write_output().await;
         if !write_putput_worked {
             self.report_state(ParserState::ErrorWritingFailed);
         }
@@ -142,7 +144,7 @@ impl Parser {
     async fn download(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let client = Client::new();
         let mut response = client.get(&self.download_url).send().await?;
-        let mut dest_file = File::create(&self.local_download_filename)?;
+        let mut dest_file = File::create(&self.local_download_filename).await?;
         let total_download_size = response.content_length().unwrap_or(0);
 
         let mut processed_data = 0;
@@ -152,7 +154,7 @@ impl Parser {
             new_state: ParserState::Downloading(0),
         });
         while let Some(chunk) = response.chunk().await? {
-            dest_file.write_all(&chunk)?;
+            dest_file.write_all(&chunk).await?;
             processed_data = processed_data + chunk.len();
             let new_percentage: f32 =
                 100 as f32 * processed_data as f32 / total_download_size as f32;
@@ -172,33 +174,34 @@ impl Parser {
             .get(format!("{}.md5", self.download_url))
             .send()
             .await?;
-        let mut dest_file = File::create(&self.md5_file_name)?;
+        let mut dest_file = File::create(&self.md5_file_name).await?;
         while let Some(chunk) = response.chunk().await? {
-            dest_file.write_all(&chunk)?;
+            dest_file.write_all(&chunk).await?;
         }
         let checksum_from_control = std::fs::read_to_string(&self.md5_file_name)?;
         let checksum_from_file = hash_file(self.local_download_filename.clone());
         Ok(checksum_from_control.trim() == checksum_from_file.md5_hash.trim())
     }
 
-    fn extract(&self) -> Result<(), std::io::Error> {
+    async fn extract(&self) -> Result<(), std::io::Error> {
         self.report_state(ParserState::Extracting(0));
-        let gz_file = File::open(&self.local_download_filename)?;
+        let gz_file = tokio::fs::File::open(&self.local_download_filename).await?;
+        let br = BufReader::new(gz_file);
         self.report_state(ParserState::Extracting(10));
-        let mut gz = GzDecoder::new(gz_file);
+        let mut gz = GzipDecoder::new(br);
         let mut xml_data = String::new();
-        let _ = gz.read_to_string(&mut xml_data);
+        let _ = gz.read_to_string(&mut xml_data).await;
         self.report_state(ParserState::Extracting(90));
-        fs::write(&self.extracted_filename, &xml_data)?;
+        tokio::fs::write(&self.extracted_filename, &xml_data).await?;
         self.report_state(ParserState::Extracting(100));
         Ok(())
     }
 
-    fn process(&mut self) -> Result<usize, fmt::Error> {
+    async fn process(&mut self) -> Result<usize, fmt::Error> {
         self.report_state(ParserState::Processing(0));
-        let mut file = fs::File::open(&self.extracted_filename).unwrap();
-        let mut xml_data = String::new();
-        file.read_to_string(&mut xml_data).unwrap();
+        let xml_data = tokio::fs::read_to_string(&self.extracted_filename)
+            .await
+            .unwrap();
         let opts = ParsingOptions {
             allow_dtd: true,
             nodes_limit: u32::MAX,
@@ -248,11 +251,12 @@ impl Parser {
         self.article_data.retain(|a| a.is_article_relevant());
     }
 
-    fn write_output(&self) -> bool {
+    async fn write_output(&self) -> bool {
         self.report_state(ParserState::WritingFile);
         let articles_json = serde_json::to_string_pretty(&self.article_data).unwrap();
-        let mut file = File::create(&self.output_filename).unwrap();
-        file.write_all(articles_json.as_bytes()).unwrap();
+        let mut file = File::create(&self.output_filename).await.unwrap();
+        file.write_all(articles_json.as_bytes()).await.unwrap();
+        let _ = tokio::fs::remove_dir(self.temp_dir.clone()).await;
         self.report_state(ParserState::FinishedInputFile(self.article_data.len()));
         true
     }

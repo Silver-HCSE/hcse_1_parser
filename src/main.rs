@@ -1,6 +1,6 @@
+use futures_util;
 use logger::Logger;
 use parser::*;
-use tokio::task::JoinSet;
 mod article;
 mod logger;
 mod parser;
@@ -16,7 +16,7 @@ struct Args {
     filecount: usize,
 
     /// The number of download processes.
-    #[arg(short, long, default_value_t = 2)]
+    #[arg(short, long, default_value_t = 10)]
     processes: usize,
 }
 
@@ -30,19 +30,18 @@ async fn run(n_procs: usize, n_files: usize) {
     let mut logger = Logger::new(n_procs, n_files);
     let task_counter = Arc::new(AtomicI32::new(n_files.clone() as i32));
     let logger_sender = logger.get_sender();
-    let mut join_set = JoinSet::new();
+    let mut tasks = vec![];
     for n in 0..n_procs {
         let c = &logger.get_sender();
         let mut parser =
             crate::parser::Parser::initialize(task_counter.clone(), &c.clone(), n as u32);
-        join_set.spawn(async move {
+        let handle = tokio::spawn(async move {
             parser.try_restart().await;
         });
+        tasks.push(handle);
     }
     let logger_thread = std::thread::spawn(move || logger.run());
-    while let Some(_) = join_set.join_next().await {
-        println!("A thread has finished.");
-    }
+    let _ = futures_util::future::join_all(tasks).await;
     let _ = logger_sender.send(ParserMessage {
         id: 0,
         new_state: ParserState::Terminate,
