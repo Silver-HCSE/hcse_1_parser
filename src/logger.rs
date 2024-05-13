@@ -81,7 +81,7 @@ impl Logger {
                 if index < self.n_progs {
                     self.last_parser_states[index] = m.new_state;
                 }
-                let _ = Logger::clear_console();
+                // let _ = Logger::clear_console();
                 self.update_overall_progress_bar();
                 for i in 0..self.n_progs {
                     self.update_view(i);
