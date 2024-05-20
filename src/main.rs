@@ -16,14 +16,19 @@ struct Args {
     filecount: usize,
 
     /// The number of download processes.
-    #[arg(short, long, default_value_t = 10)]
+    #[arg(short, long, default_value_t = 2)]
     processes: usize,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    run(args.processes, args.filecount).await;
+    let multi_threaded_runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .max_blocking_threads(args.processes)
+        .worker_threads(args.processes)
+        .build()?;
+    multi_threaded_runtime.block_on(run(args.processes, args.filecount));
+    Ok(())
 }
 
 async fn run(n_procs: usize, n_files: usize) {

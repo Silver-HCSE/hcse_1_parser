@@ -2,7 +2,6 @@ use crate::parser::{ParserMessage, ParserState};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::io::{self, Write};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use termion::color;
 
 pub struct Logger {
     n_progs: usize,
@@ -171,13 +170,7 @@ impl Logger {
     }
 
     fn print_error_message(message: &str, index: usize) {
-        println!(
-            "{}Process {}: {}{}",
-            color::Fg(color::Red),
-            index,
-            message,
-            color::Fg(color::Reset)
-        );
+        println!("{}Process: {}", index, message,);
     }
 
     fn finish_parser_progress(&self, index: usize) {
