@@ -238,9 +238,7 @@ impl Parser {
                 "Article" => {
                     article.set_from_article_data(child);
                 }
-                "Keyword" => article.tags.push(child.text().unwrap_or("").to_string()),
                 "PubmedData" => article.set_from_pubmed_data(child),
-                "DateCompleted" => article.set_date_from_date_node(child),
                 _ => {}
             }
         }

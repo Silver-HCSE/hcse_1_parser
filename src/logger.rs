@@ -35,7 +35,7 @@ impl Logger {
             .unwrap()
             .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
         let bar_style = ProgressStyle::with_template(
-            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>5}/{len:5} {msg}",
+            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>5}/{len:5} {msg} ({eta})",
         )
         .unwrap()
         .progress_chars("##-");
@@ -68,7 +68,17 @@ impl Logger {
     }
 
     pub fn run(&mut self) {
+        let mut clear_counter = 0;
         loop {
+            clear_counter += 1;
+            if clear_counter > 9 {
+                let _ = Logger::clear_console();
+                self.update_overall_progress_bar();
+                for i in 0..self.n_progs {
+                    self.update_view(i);
+                }
+                clear_counter = 0;
+            }
             let msg = self.receiver.recv();
             if msg.is_ok() {
                 let m = msg.unwrap();
@@ -81,11 +91,7 @@ impl Logger {
                 if index < self.n_progs {
                     self.last_parser_states[index] = m.new_state;
                 }
-                // let _ = Logger::clear_console();
-                self.update_overall_progress_bar();
-                for i in 0..self.n_progs {
-                    self.update_view(i);
-                }
+                self.update_view(index);
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
