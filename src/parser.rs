@@ -72,7 +72,7 @@ impl Parser {
         }
     }
 
-    pub async fn try_restart(&mut self) {
+    pub async fn try_restart(&mut self, client: &Client) {
         loop {
             self.counter_arc
                 .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
@@ -81,12 +81,12 @@ impl Parser {
                 self.report_state(ParserState::Done);
                 return;
             } else {
-                self.reinit_for_index(counter_value as u32).await;
+                self.reinit_for_index(counter_value as u32, client).await;
             }
         }
     }
 
-    async fn reinit_for_index(&mut self, index: u32) {
+    async fn reinit_for_index(&mut self, index: u32, client: &Client) {
         let _ = tokio::fs::create_dir(&self.temp_dir.clone()).await;
         let fname = format!("pubmed24n{:0>4}.xml", index);
         self.report_state(ParserState::Restarting);
@@ -96,15 +96,15 @@ impl Parser {
         self.extracted_filename = format!("{}/{}", &self.temp_dir, fname).to_string();
         self.article_data = vec![];
         self.output_filename = format!("results_{}.json", fname).to_string();
-        self.run().await;
+        self.run(client).await;
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self, client: &Client) {
         let is_already_parsed_locally = self.check_if_file_is_present();
         if is_already_parsed_locally {
             return;
         }
-        let download_worked = self.download().await;
+        let download_worked = self.download(client).await;
         if download_worked.is_err() {
             self.report_state(ParserState::ErrorDownloadFailed);
             return;
@@ -141,8 +141,10 @@ impl Parser {
         });
     }
 
-    async fn download(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let client = Client::new();
+    async fn download(
+        &self,
+        client: &Client,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut response = client.get(&self.download_url).send().await?;
         let mut dest_file = File::create(&self.local_download_filename).await?;
         let total_download_size = response.content_length().unwrap_or(0);
