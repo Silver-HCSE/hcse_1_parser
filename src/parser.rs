@@ -1,5 +1,6 @@
 use crate::article::*;
 use async_compression::tokio::bufread::GzipDecoder;
+use tokio::fs;
 use core::fmt;
 use file_integrity::hash_file;
 use reqwest::Client;
@@ -28,6 +29,7 @@ pub enum ParserState {
     ErrorExtractionFailed,
     ErrorParsingFailed,
     ErrorWritingFailed,
+    ErrorDeleting,
     Terminate,
 }
 
@@ -128,6 +130,17 @@ impl Parser {
         if !write_putput_worked {
             self.report_state(ParserState::ErrorWritingFailed);
         }
+        let delete_worked = self.delete_artifacts().await;
+        if delete_worked.is_err() {
+            self.report_state(ParserState::ErrorDeleting);
+        }
+    }
+
+    async fn delete_artifacts(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        fs::remove_file(&self.local_download_filename).await?;
+        fs::remove_file(&self.extracted_filename).await?;
+
+        Ok(true)
     }
 
     fn check_if_file_is_present(&self) -> bool {

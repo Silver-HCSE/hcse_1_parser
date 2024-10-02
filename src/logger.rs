@@ -144,6 +144,9 @@ impl Logger {
             ParserState::ErrorExtractionFailed => {
                 Logger::print_error_message("Extracting archive failed!", index)
             }
+            ParserState::ErrorDeleting => {
+                Logger::print_error_message("Deleting artifacts failed!", index)
+            }
             ParserState::Terminate => {
                 let _ = self.multi_progress.clear();
                 println!("All processes have terminated.");
