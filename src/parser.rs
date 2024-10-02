@@ -104,6 +104,7 @@ impl Parser {
     pub async fn run(&mut self, client: &Client) {
         let is_already_parsed_locally = self.check_if_file_is_present();
         if is_already_parsed_locally {
+            self.report_state(ParserState::FinishedInputFile(0));
             return;
         }
         let download_worked = self.download(client).await;
