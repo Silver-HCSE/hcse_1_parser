@@ -13,6 +13,7 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
+use chrono::Datelike;
 
 pub enum ParserState {
     Restarting,
@@ -90,7 +91,9 @@ impl Parser {
 
     async fn reinit_for_index(&mut self, index: u32, client: &Client) {
         let _ = tokio::fs::create_dir(&self.temp_dir.clone()).await;
-        let fname = format!("pubmed24n{:0>4}.xml", index);
+        let current_date = chrono::Utc::now();
+        let year = current_date.year() - 2000;
+        let fname = format!("pubmed{}n{:0>4}.xml",year, index);
         self.report_state(ParserState::Restarting);
         self.download_url = format!("https://ftp.ncbi.nlm.nih.gov/pubmed/baseline/{}.gz", fname);
         self.local_download_filename = format!("{}/{}.gz", &self.temp_dir, fname).to_string();
@@ -138,7 +141,8 @@ impl Parser {
     }
 
     async fn delete_artifacts(&self) -> Result<bool, Box<dyn std::error::Error>> {
-        fs::remove_file(&self.local_download_filename).await?;
+        //fs::remove_file(&self.local_download_filename).await?;
+        println!("{}", &self.local_download_filename);
         fs::remove_file(&self.extracted_filename).await?;
 
         Ok(true)
@@ -215,9 +219,18 @@ impl Parser {
 
     async fn process(&mut self) -> Result<usize, fmt::Error> {
         self.report_state(ParserState::Processing(0));
-        let xml_data = tokio::fs::read_to_string(&self.extracted_filename)
-            .await
-            .unwrap();
+        let xml_data = match tokio::fs::read_to_string(&self.extracted_filename).await {
+            Ok(data) if !data.trim().is_empty() => data,
+            Ok(err) => {
+                println!("{}", err);
+                return Err(fmt::Error);
+            }
+            Err(e) => {
+                eprintln!("Error reading file: {}", e);
+                return Err(fmt::Error);
+            }
+        };
+        
         let opts = ParsingOptions {
             allow_dtd: true,
             nodes_limit: u32::MAX,
