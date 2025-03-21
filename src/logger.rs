@@ -70,13 +70,13 @@ impl Logger {
         let mut clear_counter = 0;
         loop {
             clear_counter += 1;
-            if clear_counter > 9 {
-                let _ = Logger::clear_console();
-                self.update_overall_progress_bar();
-                for i in 0..self.n_progs {
-                    self.update_view(i);
-                }
+            if clear_counter > 40 {
                 clear_counter = 0;
+                let _ = Logger::clear_console();
+            }
+            self.update_overall_progress_bar();
+            for i in 0..self.n_progs {
+                self.update_view(i);
             }
             let msg = self.receiver.recv();
             if msg.is_ok() {
@@ -92,7 +92,7 @@ impl Logger {
                 }
                 self.update_view(index);
             }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
     }
 

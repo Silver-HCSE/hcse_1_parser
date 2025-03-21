@@ -11,8 +11,8 @@ use std::sync::Arc;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// The number of files to use. Will count down from this to zero.
-    #[arg(short, long, default_value_t = 1219)]
+    /// The number of files to use. Will count down from this to zero. See https://ftp.ncbi.nlm.nih.gov/pubmed/baseline/ for the latest file count.
+    #[arg(short, long, default_value_t = 1274)]
     filecount: usize,
 
     /// The number of download processes.
@@ -33,7 +33,7 @@ fn main() {
 
 async fn run(n_procs: usize, n_files: usize) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder()
-        .pool_max_idle_per_host(100) // Optimize the connection pool
+        .pool_max_idle_per_host(n_procs)
         .build()?;
     let mut logger = Logger::new(n_procs, n_files);
     let task_counter = Arc::new(AtomicI32::new(n_files.clone() as i32));
